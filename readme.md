@@ -18,10 +18,10 @@ Compile both components and ensure they are in your system path:
 
 ```bash
 # Install the server
-go install ./cmd/golsp-server
+go install ./golsp-server
 
 # Install the CLI
-go install ./cmd/golsp-cli
+go install ./golsp-cli
 ```
 
 ### 2. Dependencies
