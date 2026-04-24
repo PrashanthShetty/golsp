@@ -24,7 +24,7 @@ cd golsp
 To compile the program into an executable named `golsp-server`:
 
 ```bash
-go build . -o golsp-server
+go build -o golsp-server .
 ```
 
 ### 3. Install to System Path

@@ -13,7 +13,7 @@
 ### 1. Build the CLI
 
 ```bash
-go build . -o golsp-cli
+go build -o golsp-cli .
 ```
 
 ### 2. Install
