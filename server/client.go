@@ -30,6 +30,9 @@ type Response struct {
 	Error   any             `json:"error,omitempty"`
 }
 
+type OpenedFile struct {
+	ModTime time.Time
+}
 type Location struct {
 	URI   string `json:"uri"`
 	Range struct {
@@ -44,7 +47,7 @@ type Client struct {
 	reader       *bufio.Reader
 	writer       *bufio.Writer
 	pending      map[int]chan *Response
-	openedFiles  map[string]bool
+	openedFiles  map[string]*OpenedFile
 	mu           sync.Mutex
 	idCounter    int
 	projectDir   string
@@ -58,7 +61,7 @@ func newClient(conn net.Conn, process *os.Process, reader *bufio.Reader, writer 
 		reader:       reader,
 		writer:       writer,
 		pending:      make(map[int]chan *Response),
-		openedFiles:  make(map[string]bool),
+		openedFiles:  make(map[string]*OpenedFile),
 		projectDir:   projectDir,
 		goplsProcess: process,
 	}
@@ -177,15 +180,35 @@ func (c *Client) waitForIndexing(f string) {
 	}
 }
 
-func (c *Client) openFile(f string) {
+func (c *Client) openFile(f string) (isNew bool) {
+	info, err := os.Stat(f)
+	if err != nil {
+		log.Printf("Failed to stat file: %v", err)
+		return false
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.openedFiles[f] {
-		return
+	existing, alreadyOpen := c.openedFiles[f]
+
+	if alreadyOpen {
+		if info.ModTime().After(existing.ModTime) {
+			// File changed — send didChange
+			log.Printf("File changed, syncing: %s", f)
+			c.syncFile(f, info.ModTime())
+			return false // not new, but updated
+		}
+		return false // not new, not changed
 	}
 
-	content, _ := os.ReadFile(f)
+	// New file — send didOpen
+	content, err := os.ReadFile(f)
+	if err != nil {
+		log.Printf("Failed to read file: %v", err)
+		return false
+	}
+
 	c.notify("textDocument/didOpen", map[string]any{
 		"textDocument": map[string]any{
 			"uri":        "file://" + f,
@@ -194,6 +217,30 @@ func (c *Client) openFile(f string) {
 			"text":       string(content),
 		},
 	})
-	c.openedFiles[f] = true
+
+	c.openedFiles[f] = &OpenedFile{ModTime: info.ModTime()}
 	log.Printf("Opened file: %s", f)
+	return true
+}
+
+func (c *Client) syncFile(f string, modTime time.Time) {
+	content, err := os.ReadFile(f)
+	if err != nil {
+		log.Printf("Failed to read file: %v", err)
+		return
+	}
+
+	// Increment version
+	c.openedFiles[f].ModTime = modTime
+
+	c.notify("textDocument/didChange", map[string]any{
+		"textDocument": map[string]any{
+			"uri":     "file://" + f,
+			"version": 2,
+		},
+		"contentChanges": []map[string]any{
+			{"text": string(content)}, // full file sync
+		},
+	})
+	log.Printf("Synced file: %s", f)
 }

@@ -39,8 +39,10 @@ func (c *Client) handleConn(conn net.Conn) {
 func (c *Client) executeCommand(cmd *protocol.Command, conn net.Conn) {
 	f, _ := filepath.Abs(cmd.File)
 
-	c.openFile(f)
-	c.waitForIndexing(f)
+	isNew := c.openFile(f) // handles open + change detection
+	if isNew {
+		c.waitForIndexing(f) // only wait on first open
+	}
 
 	reqID := c.send(cmd.Method, c.buildParams(cmd, f))
 
